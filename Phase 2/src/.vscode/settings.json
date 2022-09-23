@@ -1,0 +1,24 @@
+{
+    "files.associations": {
+        "*.tcc": "c",
+        "exception": "c",
+        "fstream": "c",
+        "istream": "c",
+        "new": "c",
+        "ostream": "c",
+        "sstream": "c",
+        "stdexcept": "c",
+        "streambuf": "c",
+        "type_traits": "c",
+        "*.inc": "c",
+        "thread.h": "c",
+        "stdbool.h": "c",
+        "debug.h": "c",
+        "cstdlib": "c",
+        "palloc.h": "c",
+        "interrupt.h": "c",
+        "vaddr.h": "c",
+        "process.h": "c",
+        "typeinfo": "c"
+    }
+}
