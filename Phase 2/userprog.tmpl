@@ -1,0 +1,257 @@
+             +--------------------------+
+             |          CS 140          |
+             | PROJECT 2: USER PROGRAMS |
+             |     DESIGN DOCUMENT      |
+             +--------------------------+
+
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+Ali ElSharawy <hsnalshrawyly56@gmail.com>
+Basel Ahmed <basel20ahmed@gmail.com>
+Zeyad Zidan <iamzeyadzidan@gmail.com>
+Youssef Saber <yousefsaber.155@gmail.com>
+
+---- PRELIMINARIES ----
+ 
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+               ARGUMENT PASSING
+               ================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+No new struct or data structure was introduced.
+
+---- ALGORITHMS ----
+
+>> A2: Briefly describe how you implemented argument parsing.  How do
+>> you arrange for the elements of argv[] to be in the right order?
+>> How do you avoid overflowing the stack page?
+
+Implementation of Argument Passing:
+    01. Inside the load function, after activating the process we tokenize the file_name.
+    02. file_name is the full name of file with its arguments like "echo x y z".
+    03. After tokenizing file_name we save the arguments and the file name in array argv[].
+    04. argv[] in our example would be: {echo, x, y, z}.
+    05. We pass argv[0] to filesys_open(char *file_name) to open the file with name "echo" for example.
+    06. After setting argv[], now we have argc which stands for the number of arguments (including file name).
+    07. load() is called within start_process(), inside load --> setup_stack() is called.
+    08. If a stack was successfully initialized, we pass argc, argv, and esp to our function set_up_stack().
+    (This is how we arrange the elements of argv[] to be in the right order).
+    09. Inside this function we use memcpy to setup the addresses of each argument accordingly.
+    10. We add the word padding (alignment) to each argument in the stack, then we scan backwards.
+    11. After scan we push argv, argc, and a fake return address with value equal to 0.
+    
+Avoiding Overflowing the Stack Page:
+    Naively scan the arguments. If it works, then it works. If not, then any page
+    faults or overflowing is handled within page_fault() in exception.c.
+    By calling exit(-1), a process exits with exit status -1 whenever a page fault
+    occurs so we need not to scan the validity of esp each time we use it. 
+    Simply passing too many arguments is not acceptable when it happens.
+
+---- RATIONALE ----
+
+>> A3: Why does Pintos implement strtok_r() but not strtok()?
+
+- strtok eliminates the rest of a string without keeping it in a temporary variable.
+- strtok_r gives us the capability to save the rest in a pointer we can access later on.
+
+The kernel separates the command line into an executable and its arguments so we need
+to keep track of the rest of the command line as the save_ptr.
+
+>> A4: In Pintos, the kernel separates commands into a executable name
+>> and arguments.  In Unix-like systems, the shell does this
+>> separation.  Identify at least two advantages of the Unix approach.
+
+    1. A separated command can be pre-processed making the Unix shell
+        act like an interpreter.
+    2. The unix is more protective as it separates the command in the
+        kernel space not in the user space.
+    3. The unix is more efficient as it shortens the time a process
+        takes inside the kernel space.
+
+                 SYSTEM CALLS
+                 ============
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+- Added a new struct for file descriptors under name: file_block.
+    struct file_block
+    {
+        struct file *executable;    /* File name. */
+        int fd;                     /* File descriptor. */
+        struct list_elem file_elem; /* List element for file element. */
+    };
+
+- Type defined a new int under name: pid_t for process id.
+- Introduced a new lock under name filesys_lock for system calls synchronization.
+- Introduced new variables, semaphores and structs in the "thread" struct to handle system calls, enforce synchorization,
+ establish multidirectional connections between parent and child processes and keep track of the the held I/O resources using file descriptor table.
+    struct thread
+    {
+        /* Owned by thread.c. */
+        struct thread *parent;     /*save pointer to parent*/
+        tid_t wait_for_me;         /* save thread id of the thread that the current thread is waiting for */
+        struct list_elem child;
+        struct semaphore parent_synch_child; /* Initialized to 0 */
+        struct semaphore wait_me;   /* Parent will wait until child thread finishes. */
+        struct list children;       /* Stores list of children processes of the given thread */
+        bool child_succ;            /* Indicates if a child was created successfully. */
+        int exit_status;            /* Denotes the exiting status of the current thread */
+        struct file * executable;   /* File descriptor structure. */
+        struct list fdt;            /* File discriptor table an array of pointer to struct file used to hold the I/O resources */ 
+        int next_fd;                /* Index of the file descriptor table, and it is allocated sequentially 
+                                    where it save the index of the next file to be opened by the process*/
+    };
+
+>> B2: Describe how file descriptors are associated with open files.
+>> Are file descriptors unique within the entire OS or just within a
+>> single process?
+
+- For file descriptor equals zero is STDIN and for file descriptor equals one is STDOUT
+  else is a file descriptor to a struct file
+- Each process has unique file descriptors table as any file has unique file descriptor for each process
+  so that the file descriptor is unique for single process not global for the entire OS.
+
+---- ALGORITHMS ----
+
+>> B3: Describe your code for reading and writing user data from the
+>> kernel.
+
+- We get the file descriptor, buffer and size from stack then we check for buffer pointer,
+  then we have three cases:
+    - file descriptor equals zero so we can only read from STDIN and writing is invalid
+    - file descriptor equals one so we can only write to STDOUT and reading is invalid
+    - file descriptor greater than one so we use kernel functions and we can read or write the file.
+
+>> B4: Suppose a system call causes a full page (4,096 bytes) of data
+>> to be copied from user space into the kernel.  What is the least
+>> and the greatest possible number of inspections of the page table
+>> (e.g. calls to pagedir_get_page()) that might result?  What about
+>> for a system call that only copies 2 bytes of data?  Is there room
+>> for improvement in these numbers, and how much?
+
+- The least number is 2, checking the start of the buffer and the end only,
+  the greatest number is 4,096 which is checking all the bytes that are copied.
+  for system call of 2 bytes, it will be 2 all times. It can always be 2 which is
+  checking the start and the end of the buffer only.
+
+>> B5: Briefly describe your implementation of the "wait" system call
+>> and how it interacts with process termination.
+
+- To execute a function in user mode, it creates a child thread to execute this function
+  and waits untill the child thread executes the function.
+  so when parent wait, it unblock the child thread and remove this child from parrent list
+  then parent points to the child so that child will know the parent waiting for it
+  at last when child finishes executing function it returns the status to the parent waiting it.   
+
+>> B6: Any access to user program memory at a user-specified address
+>> can fail due to a bad pointer value.  Such accesses must cause the
+>> process to be terminated.  System calls are fraught with such
+>> accesses, e.g. a "write" system call requires reading the system
+>> call number from the user stack, then each of the call's three
+>> arguments, then an arbitrary amount of user memory, and any of
+>> these can fail at any point.  This poses a design and
+>> error-handling problem: how do you best avoid obscuring the primary
+>> function of code in a morass of error-handling?  Furthermore, when
+>> an error is detected, how do you ensure that all temporarily
+>> allocated resources (locks, buffers, etc.) are freed?  In a few
+>> paragraphs, describe the strategy or strategies you adopted for
+>> managing these issues.  Give an example.
+
+- We check if pointer is not null and in valid user space address using bool is_user_vaddr(void*)
+  and checking if pointer is accessing unmapped user address.
+  so if pointer is valid we call exit with status -1.
+  void is_valid_ptr(void* ptr){
+  if(! (ptr != NULL && is_user_vaddr(ptr) && pagedir_get_page(thread_current()->pagedir, ptr) != NULL))
+    exit(-1);
+}
+
+---- SYNCHRONIZATION ----
+
+>> B7: The "exec" system call returns -1 if loading the new executable
+>> fails, so it cannot return before the new executable has completed
+>> loading.  How does your code ensure this?  How is the load
+>> success/failure status passed back to the thread that calls "exec"?
+
+- We introduced a variable named child_success in the struct "thread" of parent so that the variabe stores -1 
+in case of exec failure or exit with the child success as an exit status if the child is loaded successfully.
+
+>> B8: Consider parent process P with child process C.  How do you
+>> ensure proper synchronization and avoid race conditions when P
+>> calls wait(C) before C exits?  After C exits?  How do you ensure
+>> that all resources are freed in each case?  How about when P
+>> terminates without waiting, before C exits?  After C exits?  Are
+>> there any special cases?
+
+	
+---- RATIONALE ----
+
+>> B9: Why did you choose to implement access to user memory from the
+>> kernel in the way that you did?
+- We check the validity of user addresses by checking three conditions:
+  1. user_addr != NULL 
+  2. user_addr < PHYS_BASE
+  3. user_addr is mapped to a valid physical address using the function "pagedir_get_page()".
+
+*  We chose this approach for the simplicity of implementation
+   as well as debugging.
+
+>> B10: What advantages or disadvantages can you see to your design
+>> for file descriptors?
+
+- Advantages : The implementation of the file discriptors hides the file pointer returned by the kernel. 
+               That is why the user can not manipulate file system directly which is more safe.
+
+- Disadvantages: It's not optimized; as every time user the process tries to open the same file, fdt_entry is created which holds the
+                file pointer and the fd number. It is more optimal to create list of file descriptors that points to the same file.
+
+
+>> B11: The default tid_t to pid_t mapping is the identity mapping.
+>> If you changed it, what advantages are there to your approach?
+
+- As each process in pintOS has only one thread so it is useless to make pid_t different from tid_t
+  so that it is better to be the same to facilitate mapping between them.
+
+
+               SURVEY QUESTIONS
+               ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+It was quite hard to implement the three problems as each one relies on the other two.
+A test may not pass if any of the three problems fails.
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future quarters or the remaining projects?
+
+>> Any other comments?
